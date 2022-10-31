@@ -1,0 +1,274 @@
+%skeleton "lalr1.cc"
+%define lr.type canonical-lr
+%define api.namespace {go}
+%define api.parser.class {parser}
+%define api.value.type variant
+%define api.token.constructor
+%define parse.assert
+%define parse.trace
+%define parse.error verbose
+%locations
+%initial-action
+{
+    // initialize the initial location object
+    @$.begin.filename = @$.end.filename = &drv.file;
+};
+                       
+%code requires {
+    namespace go {
+        class driver;
+        class scanner;
+    }             
+}
+
+%code top {
+#include <cstdio>
+#include <cstdlib>
+#include <ctype.h>
+#include <iostream>
+#include <string>
+#include <algorithm>
+#include <memory>
+/* #include "../../include/ast.hpp" */
+/* #include "../../include/ast_helper.hpp" */
+/* #include "../../include/string_conv.hpp" */
+#include "location.hh"
+#include "position.hh"
+#include "../../include/driver.hpp"
+#include "../../include/scanner.hpp"
+#include "bison-parser.hpp"
+
+static go::parser::symbol_type yylex(go::scanner& scanner, go::driver& drv) {
+    return scanner.get_next_token();
+}
+
+using namespace go;
+                        
+void yyerror(const char *s) {
+    fflush(stdout);
+    fprintf(stderr, "*** %s\n", s);
+}
+}
+
+%lex-param { go::scanner& lexer }
+%lex-param { go::driver& drv }
+%parse-param { go::scanner& lexer }
+%parse-param { go::driver& drv }
+/* %parse-param { std::shared_ptr<ast::top_level>& root } */
+
+%token  <std::string> DATATYPE
+%token  <std::string> IDENTIFIER
+%token  ELLIPSIS "..." DOT "." SINGLE_QUOTE "\'" COMMA "," SEMICOLON ";" COLON ":"
+%token  PAREN_OPEN "(" PAREN_CLOSE ")" BRACE_OPEN "{" BRACE_CLOSE "}" BRACKET_OPEN "[" BRACKET_CLOSE "]"
+%token  PLUS_EQ "+=" MIN_EQ "-=" MUL_EQ "*=" DIV_EQ "/="
+%token	OR_EQ "|=" AND_XOR_EQ "&^=" AND_EQ "&=" XOR_EQ "^=" 
+%token	LSHIFT_EQ "<<=" RSHIFT_EQ ">>=" MOD_EQ "%="
+%token  EQOPCHAN "= <-" QUEST "?" NILCOALESCE "??"
+%token  ASSIGN ":=" EQ "="
+
+%token  LOGICAL_AND "&&" LOGICAL_OR "||"
+                        
+%token	PLUSPLUS "++" MINMIN "--"
+%token  <std::string> PLUS "+" MIN "-" OR "|" XOR "^"
+%token  <std::string> MUL "*" DIV "/" MOD "%" LSHIFT "<<" RSHIFT ">>" AND "&" AND_XOR "&^"
+%token  <std::string> EQEQ "==" NEQ "!=" NOT "!" LE "<=" GE ">=" GT ">" LT "<"
+%token  <std::string> OPCHAN "<-"
+
+%token  BREAK CASE CHAN CONST CONTINUE DEFAULT
+%token  DEFER ELSE FALLTHROUGH FOR FUNC GO
+%token  GOTO IF IMPORT INTERFACE MAP PACKAGE
+%token  RANGE RETURN SELECT STRUCT SWITCH TYPE VAR
+%token  NIL MAKE LEN CLOSE NEW DELETE TRY CATCH FINALLY
+%token  THROW MODULE
+%token  PRINT PRINTLN
+                        
+%token  <bool>           BOOL_LITERAL
+%token  <char32_t>       CHARACTER_LITERAL
+%token  <std::string>    STRING_LITERAL
+%token  <std::int64_t>   INT_LITERAL
+%token  <double>         FLOAT_LITERAL
+
+%token END 0 "end of file"
+
+/* lowest precedence */
+%left  ","
+%left  EXPR
+%right EQ PLUS_EQ MIN_EQ MUL_EQ DIV_EQ AND_EQ OR_EQ EQOPCHAN ASSIGN
+%right COLON
+%right OPCHAN
+%right QUEDT NILCOALESCE
+%left  LOGICAL_OR
+%left  LOGICAL_AND
+%left  EQEQ NEQ LT LE GT GE
+%left  PLUS MIN OR XOR
+%left  MUL DIV MOD LSHIFT RSHIFT AND AND_XOR
+%right IN
+%right PLUSPLUS MINUSMINUS
+%left  PEXPR
+%left  "["
+%left  CAST
+%left  FCALL
+%left  FPRINT
+%left  UNARY
+/* highest precedence */
+
+/*
+ * manual override of shift/reduce conflicts.
+ * the general form is that we assign a precedence
+ * to the token being shifted and then introduce
+ * NotToken with lower precedence or PreferToToken with higher
+ * and annotate the reducing rule accordingly.
+ */
+%left		NotPackage
+%left       Package
+%left		NotParen
+%left		"("
+
+%left		")"
+%left		PreferToRightParen
+
+// --- Exprs ---
+/* %type   <std::vector<std::shared_ptr<ast::expr>>>         exprs */
+/* %type   <std::shared_ptr<ast::expr>>                      expr */
+/* %type   <std::shared_ptr<ast::expr>>                      unary_expr */
+/* %type   <std::shared_ptr<ast::expr>>                      primary_expr */
+/* %type   <std::shared_ptr<ast::expr>>                      operand */
+/* %type   <std::shared_ptr<ast::expr>>                      literal */
+/* %type   <std::shared_ptr<ast::expr>>                      basic_lit */
+                    
+/* // --- Operators --- */
+/* %type   <ast::mul_op>                                     op_mul */
+/* %type   <ast::add_op>                                     op_add */
+/* %type   <ast::unary_op>                                   op_unary */
+/* %start file */
+%%
+file:           exprs {std::cout << "File root!\r\n";}
+                ;
+
+exprs:          expr{std::cout << "Expressions\r\n";}
+        |       exprs opt_term expr {std::cout << "New expressions!\r\n";}
+                ;
+
+expr:           unary_expr                         {}
+        |       expr op_add expr        %prec PLUS {std::cout << "Additive expression!\r\n";;}
+        |       expr op_mul expr        %prec MUL  {std::cout << "Multiplicative expression!\r\n";;}
+                ;
+
+unary_expr:     primary_expr        %prec PEXPR {}
+        |       op_unary unary_expr %prec UNARY {}
+                ;
+
+primary_expr:   operand                  {}
+                ;
+
+operand:        literal                 {std::cout << "Literal!\r\n";}
+        |       "(" expr ")"  %prec "(" {std::cout << "Parens!\r\n";} // Need to eval first!
+                ;
+
+literal:        basic_lit {}
+                ;
+
+
+basic_lit:      INT_LITERAL        {std::cout << "Integer: " << $1 << "\r\n";}
+        |       FLOAT_LITERAL      {std::cout << "Float: " << $1 << "\r\n";}
+                ;
+
+op_mul:         MUL     {std::cout << "Binary multiplication!\r\n";}
+        |       DIV     {std::cout << "Binary division!\r\n";}
+        |       MOD     {std::cout << "Binary modulus!\r\n";}
+        |       LSHIFT  {std::cout << "Binary lshift!\r\n";}
+        |       RSHIFT  {std::cout << "Binary rshift!\r\n";}
+        |       AND     {std::cout << "Binary and!\r\n";}
+        |       AND_XOR {std::cout << "Binary and-xor!\r\n";}
+                ;
+
+op_add:         PLUS {std::cout << "Binary addition!\r\n";}
+        |       MIN  {std::cout << "Binary subtraction!\r\n";}
+        |       OR   {std::cout << "Binary or!\r\n";}
+        |       XOR  {std::cout << "Binary xor!\r\n";}
+                ;
+
+op_unary:	    PLUS   {std::cout << "Unary plus!\r\n";}
+        |       MIN    {std::cout << "Unary negation!\r\n";}
+        |       NOT    {std::cout << "Unary not!\r\n";}
+        |       XOR    {std::cout << "Unary xor!\r\n";}
+        |       MUL    {std::cout << "Unary multiplication!\r\n";}
+        |       AND    {std::cout << "Unary and!\r\n";}
+        |       OPCHAN {std::cout << "Unary channel!\r\n";}
+                ;
+
+opt_term:       %empty
+        |       term
+                ;
+
+term:           ";"
+                ;
+
+/* exprs:          expr{$$.push_back($1);} */
+/*         |       exprs opt_term expr { $1.push_back($3); $$ = std::move($1);} */
+/*                 ; */
+
+
+/* /\* expr_list:      expr %prec EQ      {$$.push_back(std::move($1));} *\/ */
+/* /\*         |       expr_list "," expr {$1.push_back(std::move($3)); $$ = std::move($1);} *\/ */
+/*         ; */
+
+/* expr:           unary_expr                         {$$ = std::move($1);} */
+/*         |       expr op_add expr        %prec PLUS {$$ = std::make_shared<ast::expr>($2, $1, $3);} */
+/*         |       expr op_mul expr        %prec MUL  {$$ = std::make_shared<ast::expr>($2, $1, $3);} */
+/*                 ; */
+
+/* unary_expr:     primary_expr        %prec PEXPR {$$ = std::move($1);} */
+/*         |       op_unary unary_expr %prec UNARY {$$ = std::make_shared<ast::expr>($1, $2);} */
+/*                 ; */
+
+/* primary_expr:   operand                  {$$ = std::move($1);} */
+/*                 ; */
+
+/* operand:        literal       {$$ = std::move($1);} */
+/*         |       "(" expr ")"  %prec "(" {$$ = std::move($2);} // Need to eval first! */
+/*                 ; */
+
+/* literal:        basic_lit {$$ = std::move($1);} */
+/*                 ; */
+
+
+/* basic_lit:      INT_LITERAL        {$$ = std::make_shared<ast::expr>(std::move($1), ast::base_type::INT);} */
+/*         |       FLOAT_LITERAL      {$$ = std::make_shared<ast::expr>(std::move($1), ast::base_type::FLOAT64);} */
+/*                 ; */
+
+/* op_mul:         MUL     {$$ = ast::mul_op::MUL;} */
+/*         |       DIV     {$$ = ast::mul_op::DIV;} */
+/*         |       MOD     {$$ = ast::mul_op::MOD;} */
+/*         |       LSHIFT  {$$ = ast::mul_op::LSHIFT;} */
+/*         |       RSHIFT  {$$ = ast::mul_op::RSHIFT;} */
+/*         |       AND     {$$ = ast::mul_op::AND;} */
+/*         |       AND_XOR {$$ = ast::mul_op::AND_XOR;} */
+/*                 ; */
+
+/* op_add:         PLUS {$$ = ast::add_op::PLUS;} */
+/*         |       MIN  {$$ = ast::add_op::MIN;} */
+/*         |       OR   {$$ = ast::add_op::OR;} */
+/*         |       XOR  {$$ = ast::add_op::XOR;} */
+/*                 ; */
+
+/* op_unary:	    PLUS   {$$ = ast::unary_op::PLUS;} */
+/*         |       MIN    {$$ = ast::unary_op::MIN;} */
+/*         |       NOT    {$$ = ast::unary_op::NOT;} */
+/*         |       XOR    {$$ = ast::unary_op::XOR;} */
+/*         |       MUL    {$$ = ast::unary_op::MUL;} */
+/*         |       AND    {$$ = ast::unary_op::AND;} */
+/*         |       OPCHAN {$$ = ast::unary_op::OPCHAN;} */
+/*                 ; */
+
+
+/* opt_term:       %empty */
+/*         |       term */
+/*                 ; */
+
+/* term:           ";" */
+/*                 ; */
+%%
+void go::parser::error(const location_type& l, const std::string& m) {
+    drv.error(l,m);
+}

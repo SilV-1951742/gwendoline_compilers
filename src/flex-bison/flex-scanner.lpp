@@ -1,0 +1,243 @@
+%{
+#include <iostream>
+#include <string>
+#include <sstream>
+/* #include "../../include/ast.hpp" */
+#include "../../include/scanner.hpp"
+#include "../../include/driver.hpp"
+/* #include "bison-parser.hpp" */
+#include "location.hh"
+#include "position.hh"
+
+int yycolumn = 1;
+int yylineno = 0;
+
+/* #undef YY_DECL */
+/* #define YY_DECL go::parser::symbol_type yylex(go::scanner& scanner, go::driver& drv) */
+
+void report(const char* ttype, int line, int column);
+// #define FLEX_DEBUG
+#define yyterminate() go::parser::make_END(go::location());
+// This will track current scanner location.
+// Action is called when length of the token is known.
+#define YY_USER_ACTION drv.increase_loc(yyleng);
+
+using namespace go;
+%}
+
+
+%option noyywrap nounput nodefault
+%option c++
+%option yyclass="Lexer"
+%option prefix="go"
+
+O   [0-7]
+D   [0-9]
+NZ  [1-9]
+L   [a-zA-Z_]
+A   [a-zA-Z_0-9]
+H   [a-fA-F0-9]
+HP  (0[xX])
+E   ([Ee][+-]?{D}+)
+P   ([Pp][+-]?{D}+)
+FS  (f|F|l|L)
+IS  (((u|U)(l|L|ll|LL)?)|((l|L|ll|LL)(u|U)?))
+CP  (u|U|L)
+SP  (u8|u|U|L)
+ES  (\\(['"\?\\abfnrtv]|[0-7]{1,3}|x[a-fA-F0-9]+))
+WS  [ \t\v\f]
+LF \n
+%x IN_COMMENT
+
+
+                        
+%% /*** Regular Expressions Part ***/
+    drv.loc.step();
+"//".*                                  { report("S-COMMENT", yylineno, yycolumn); }
+
+<INITIAL>"/*"         BEGIN(IN_COMMENT);
+<IN_COMMENT>"*/"      BEGIN(INITIAL);
+<IN_COMMENT>[^*\n]+   // eat comment in chunks
+<IN_COMMENT>"*"       // eat the lone star
+<IN_COMMENT>\n        {drv.loc.lines(); drv.loc.step();}
+
+"bool" |
+"string" |
+"int" |
+"int8" |
+"int16" |
+"int32" |
+"int64" |
+"uint" |
+"uint8" |
+"uint16" |
+"uint32" |
+"uint64" |
+"uintptr" |
+"byte" |
+"rune" |
+"float32" |
+"float64" |
+"complex64" |
+"complex128" {
+    std::string s(yytext);
+    return go::parser::make_DATATYPE(s, go::location(drv.loc));}
+
+"..." { return go::parser::make_ELLIPSIS(go::location(drv.loc));}
+"\." { return go::parser::make_DOT(go::location(drv.loc));}
+"\'" { return go::parser::make_SINGLE_QUOTE(go::location(drv.loc));}
+"," { return go::parser::make_COMMA(go::location(drv.loc));}
+";" { return go::parser::make_SEMICOLON(go::location(drv.loc));}
+":" { return go::parser::make_COLON(go::location(drv.loc));}
+
+">" { return go::parser::make_GT(">", go::location(drv.loc));}
+"<" { return go::parser::make_LT("<", go::location(drv.loc));}
+">=" { return go::parser::make_GE(">=", go::location(drv.loc));}
+"<=" { return go::parser::make_LE("<=", go::location(drv.loc));}
+"(" { return go::parser::make_PAREN_OPEN(go::location(drv.loc));}
+")" { return go::parser::make_PAREN_CLOSE(go::location(drv.loc));}
+"{" { return go::parser::make_BRACE_OPEN(go::location(drv.loc));}
+"}" { return go::parser::make_BRACE_CLOSE(go::location(drv.loc));}
+"[" { return go::parser::make_BRACKET_OPEN(go::location(drv.loc));}
+"]" { return go::parser::make_BRACKET_CLOSE(go::location(drv.loc));}
+
+"+=" { return go::parser::make_PLUS_EQ(go::location(drv.loc));}
+"-=" { return go::parser::make_MIN_EQ(go::location(drv.loc));}
+"*=" { return go::parser::make_MUL_EQ(go::location(drv.loc));}
+"/=" { return go::parser::make_DIV_EQ(go::location(drv.loc));}
+"|=" { return go::parser::make_OR_EQ(go::location(drv.loc));}
+"&^=" { return go::parser::make_AND_XOR_EQ(go::location(drv.loc));}
+"&=" { return go::parser::make_AND_EQ(go::location(drv.loc));}
+"^=" { return go::parser::make_XOR_EQ(go::location(drv.loc));}
+"<<=" { return go::parser::make_LSHIFT_EQ(go::location(drv.loc));}
+">>=" { return go::parser::make_RSHIFT_EQ(go::location(drv.loc));}
+"%=" { return go::parser::make_MOD_EQ(go::location(drv.loc));}
+"<-" { return go::parser::make_OPCHAN("<-", go::location(drv.loc));}
+"= <-" { return go::parser::make_EQOPCHAN(go::location(drv.loc));}
+"?" { return go::parser::make_QUEST(go::location(drv.loc));}
+"??" { return go::parser::make_NILCOALESCE(go::location(drv.loc));}
+
+":=" { return go::parser::make_ASSIGN(go::location(drv.loc));}
+"="  { return go::parser::make_EQ(go::location(drv.loc));}
+
+"&^" { return go::parser::make_AND_XOR("&^", go::location(drv.loc));}
+"&&" { return go::parser::make_LOGICAL_AND(go::location(drv.loc));}
+"||" { return go::parser::make_LOGICAL_OR(go::location(drv.loc));}
+"&" { return go::parser::make_AND("&", go::location(drv.loc));}
+"|" { return go::parser::make_OR("|", go::location(drv.loc));}
+"^" { return go::parser::make_XOR("^", go::location(drv.loc));}
+"!" { return go::parser::make_NOT("!", go::location(drv.loc));}
+"==" { return go::parser::make_EQEQ("==", go::location(drv.loc));}
+"!=" { return go::parser::make_NEQ("!=", go::location(drv.loc));}
+
+"++" { return go::parser::make_PLUSPLUS(go::location(drv.loc));}
+"--" { return go::parser::make_MINMIN(go::location(drv.loc));}
+
+"+" { return go::parser::make_PLUS("+", go::location(drv.loc));}
+"-" { return go::parser::make_MIN("-", go::location(drv.loc));}
+"\*" { return go::parser::make_MUL("*", go::location(drv.loc));}
+"\/" { return go::parser::make_DIV("/", go::location(drv.loc));}
+"\%" { return go::parser::make_MOD("%", go::location(drv.loc));}
+
+"<<" { return go::parser::make_LSHIFT("<<", go::location(drv.loc));}
+">>" { return go::parser::make_RSHIFT(">>", go::location(drv.loc));}
+
+"break" { return go::parser::make_BREAK(go::location(drv.loc));}
+"case" { return go::parser::make_CASE(go::location(drv.loc));}
+"chan" { return go::parser::make_CHAN(go::location(drv.loc));}
+"const" { return go::parser::make_CONST(go::location(drv.loc));}
+"continue" { return go::parser::make_CONTINUE(go::location(drv.loc));}
+"default" { return go::parser::make_DEFAULT(go::location(drv.loc));}
+"defer" { return go::parser::make_DEFER(go::location(drv.loc));}
+"else" { return go::parser::make_ELSE(go::location(drv.loc));}
+"fallthrough" { return go::parser::make_FALLTHROUGH(go::location(drv.loc));}
+"for" { return go::parser::make_FOR(go::location(drv.loc));}
+"func" { return go::parser::make_FUNC(go::location(drv.loc));}
+"go" { return go::parser::make_GO(go::location(drv.loc));}
+"goto" { return go::parser::make_GOTO(go::location(drv.loc));}
+"if" { return go::parser::make_IF(go::location(drv.loc));}
+"import" { return go::parser::make_IMPORT(go::location(drv.loc));}
+"interface" { return go::parser::make_INTERFACE(go::location(drv.loc));}
+"map" { return go::parser::make_MAP(go::location(drv.loc));}
+"package main" { return go::parser::make_PACKAGE(go::location(drv.loc));}
+"range" { return go::parser::make_RANGE(go::location(drv.loc));}
+"return" { return go::parser::make_RETURN(go::location(drv.loc));}
+"select" { return go::parser::make_SELECT(go::location(drv.loc));}
+"struct" { return go::parser::make_STRUCT(go::location(drv.loc));}
+"switch" { return go::parser::make_SWITCH(go::location(drv.loc));}
+"type" { return go::parser::make_TYPE(go::location(drv.loc));}
+"var" { return go::parser::make_VAR(go::location(drv.loc));}
+"nil" { return go::parser::make_NIL(go::location(drv.loc));}
+"make" { return go::parser::make_MAKE(go::location(drv.loc));}
+"len" { return go::parser::make_LEN(go::location(drv.loc));}
+"close" { return go::parser::make_CLOSE(go::location(drv.loc));}
+"new" { return go::parser::make_NEW(go::location(drv.loc));}
+"delete" { return go::parser::make_DELETE(go::location(drv.loc));}
+"try" { return go::parser::make_TRY(go::location(drv.loc));}
+"catch" { return go::parser::make_CATCH(go::location(drv.loc));}
+"finally" { return go::parser::make_FINALLY(go::location(drv.loc));}
+"throw" { return go::parser::make_THROW(go::location(drv.loc));}
+"module" { return go::parser::make_MODULE(go::location(drv.loc));}
+
+"print" { return go::parser::make_PRINT(go::location(drv.loc));}
+"println" { return go::parser::make_PRINTLN(go::location(drv.loc));}
+
+"true" |
+"false" {
+    std::stringstream ss;
+    ss << yytext;
+    bool ret;
+    ss >> ret;
+    return go::parser::make_BOOL_LITERAL(ret, go::location(drv.loc));
+}
+
+\'(.|[^'])\' {
+    char32_t c(yytext[1]);
+    return go::parser::make_CHARACTER_LITERAL(c, go::location(drv.loc));
+}
+
+\"(\\.|[^"])*\" |
+\`(\\.|[^`])*\`  {
+    std::string s(yytext);
+    return go::parser::make_STRING_LITERAL(s, go::location(drv.loc));
+}
+
+{HP}{H}+{IS}?               |
+{NZ}{D}*{IS}?               |
+"0"{O}*{IS}?                |
+{CP}?"'"([^'\\\n]|{ES})+"'"	{
+    std::stringstream ss;
+    ss << yytext;
+    std::int64_t ret;
+    ss >> ret;
+    return go::parser::make_INT_LITERAL(ret, go::location(drv.loc));
+}
+
+{D}+{E}{FS}?                |
+{D}*"."{D}+{E}?{FS}?        |
+{D}+"."{E}?{FS}?			|
+{HP}{H}+{P}{FS}?			|
+{HP}{H}*"."{H}+{P}{FS}?     |
+{HP}{H}+"."{P}{FS}?         {
+    std::stringstream ss;
+    ss << yytext;
+    double ret;
+    ss >> ret;
+    return go::parser::make_FLOAT_LITERAL(ret, go::location(drv.loc));}
+
+[a-zA-Z][_a-zA-Z0-9]* {
+    std::string s(yytext);
+    return go::parser::make_IDENTIFIER(s, go::location(drv.loc));}
+
+{LF}      {drv.loc.lines();}
+{WS}+   { /* whitespace separates tokens */ }
+<<EOF>> { return go::parser::make_END(go::location(drv.loc)); }
+.       { /* discard bad characters */ }
+
+%%
+
+void report(const char* t, int l, int c) {
+    #ifdef FLEX_DEBUG
+    printf("%d:%d\t -- %s \n", l, c, t);
+    #endif
+}
